@@ -1,3 +1,4 @@
+from lib2to3.pygram import Symbols
 from pycoingecko import CoinGeckoAPI
 import pandas as pd
 from datetime import datetime
@@ -7,7 +8,7 @@ from tqdm import tqdm
 warnings.filterwarnings('ignore')
 import scipy.optimize as sc
 np.set_printoptions(suppress=True)
-pd.options.display.float_format = '{:.2f}'.format
+#pd.options.display.float_format = '{:.2f}'.format
 
 
 def getRecentData(ListofTickerNames , numberOFDays):
@@ -97,7 +98,7 @@ def getHistoricalPriceData(ListofTickerNames, numberOFDays='max'):
     return df
 
 
-def getMoments(df,days=365):
+def getMoments(df):
     """
         This function gets the token price dataframe
         and returns mu (mean) and covariance matrix.
@@ -105,12 +106,12 @@ def getMoments(df,days=365):
     """
 
     pivoted_df = df.pivot_table(columns='Symbol',values='DailyReturns',index='date').dropna()
-    mu = pivoted_df.mean()*days
-    cov = pivoted_df.cov()*days
+    mu = pivoted_df.mean()
+    cov = pivoted_df.cov()
 
-    return mu,cov
+    return mu,cov,pivoted_df
 
-def portfolio_annualised_performance(weights, mu, cov,NumberOfDays):
+def portfolio_annualised_performance(weights, mu, cov,NumberOfDays=365):
     """ 
         this function aims to calculate portfolio annualized mean return and volatility 
     """
@@ -133,7 +134,7 @@ def portfolioVolatility(weights, mu, cov):
 
 
 def getEfficientPortfolio(mu, cov, returnTarget, constraintSet=(0,1)):
-    """For each returnTarget, we want to optimise the portfolio for min variance"""
+    """For each returnTarget, we want to optimize the portfolio for minimum variance"""
     num_assets = len(mu)
     args = (mu, cov)
 
@@ -190,20 +191,24 @@ def getAllocations (mu, cov,  riskFreeRate=0, numOfDaystoAnnualize=365, constrai
     np.set_printoptions(suppress=True)
 
     #get minimum volatility portfoltio
-    minVolatility_weights = minimizeVolatility(mu,cov)
-    minVol_returns, minVol_std = portfolio_annualised_performance(minVolatility_weights['x'], mu , cov,numOfDaystoAnnualize)
-    minVol_allocation = pd.DataFrame( minVolatility_weights['x'], index = mu.index, columns=['allocation'])
+    minVolOpt = minimizeVolatility(mu,cov)
+    minVol_returns, minVol_std = portfolio_annualised_performance(minVolOpt['x'],mu,cov)
+    # minVol_returns, minVol_std = round(minVol_returns*100,2), round(minVol_std*100,2)
+    minVol_allocation = pd.DataFrame( minVolOpt['x'], index = mu.index, columns=['allocation'])
+    minVol_allocation.allocation = [ round(item*100,3) for item in minVol_allocation.allocation]
 
     #get maximum sharpe ratio portfolio
-    maxShareRatio_weights = maxSharpeRatio(mu,cov,riskFreeRate)
-    maxSharpeRatio_returns, maxSharpeRatio_std = portfolio_annualised_performance(maxShareRatio_weights['x'], mu, cov,numOfDaystoAnnualize)
-    maxSR_allocation = pd.DataFrame( maxShareRatio_weights['x'], index = mu.index, columns=['allocation'])
+    maxSRopt = maxSharpeRatio(mu,cov,riskFreeRate)
+    maxSharpeRatio_returns, maxSharpeRatio_std = portfolio_annualised_performance(maxSRopt['x'],mu,cov)
+    # maxSharpeRatio_returns, maxSharpeRatio_std = round(maxSharpeRatio_returns*100,2), round(maxSharpeRatio_std*100,2)
+    maxSR_allocation = pd.DataFrame( maxSRopt['x'], index = mu.index, columns=['allocation'])
+    maxSR_allocation.allocation =[ round(item*100,3) for item in maxSR_allocation.allocation ]
 
     return {
         'Symbols':mu.index.tolist(),
-        'MinVolWeights' : list(minVolatility_weights['x']), 'MinVolReturns' : minVol_returns, 
+        'MinVolWeights' : list(minVolOpt['x']), 'MinVolReturns' : minVol_returns, 
         'MinVolStd' : minVol_std, 'MinVolAllocation': minVol_allocation,
-        'MaxSharpeWeights' :list( maxShareRatio_weights['x']), 'MaxSharpeReturns' : maxSharpeRatio_returns, 'MaxSharpeStd' : maxSharpeRatio_std,
+        'MaxSharpeWeights' :list( maxSRopt['x']), 'MaxSharpeReturns' : maxSharpeRatio_returns, 'MaxSharpeStd' : maxSharpeRatio_std,
         'MaxSharpeAllocation' : maxSR_allocation
     }
 
@@ -212,13 +217,71 @@ def getEfficientFrontierList( mu, cov, allocationdict, riskFreeRate=0, constrain
         this function to produce the optimum Sharpe Ratio portfolio, miminum volatility portfolio and efficient frontier
     """
    
-    #find efficient using the numpy array with evenly spaced numbers between minimum volatility and maximum share ratio returns
+    #find efficient frontier using the numpy array with evenly spaced  random sample of
+    # numbers between minimum volatility and maximum share ratio returns
     #and insert into efficientList
 
     efficientPortfolioList =[]
+    effcient_weights =[]
     targetReturns = np.linspace(allocationdict['MinVolReturns'], allocationdict['MaxSharpeReturns'],linspaceStep)
+    
 
     for target in targetReturns:
         efficientPortfolioList.append(getEfficientPortfolio(mu, cov, target)['fun'])
+        w=list(getEfficientPortfolio(mu, cov, target)['x'])
+        w=[round(item*100,3) for item in w]
+        effcient_weights.append(w)
     
-    return {'EfficientFrontier': efficientPortfolioList,'TargetReturns' : list(targetReturns)}
+    e = {'EfficientVolatility': efficientPortfolioList,
+         'TargetReturns' : list(targetReturns), 
+         'EfficientWeights': list(effcient_weights),
+         'Symbols':allocationdict['Symbols'] }
+
+    df = pd.DataFrame([dict(zip(e['Symbols'],w)) for w in e['EfficientWeights']]).join(pd.DataFrame({'Returns':e['TargetReturns'],'Volatility':e['EfficientVolatility']}))
+
+    df['SharpeRatio'] = (df.Returns - riskFreeRate) / df.Volatility
+
+  
+    return df
+
+
+
+def getPortfolioScenarios(df, mu , cov, num_assets, num_portfolios, RiskFreeRate=0,days=365):
+    """
+        This function generates a dataframe of multiple portfolios
+    """
+    #get empty list of portfolio of returns , volatility and weights
+    port_returns=[]
+    port_volatility=[]
+    port_weights=[]
+
+    #compute the portfolios
+    print('/*******************************************************************')
+    print('Compute mean returns and volatility for multiple portfolio scenarios')
+    print('*******************************************************************/')
+
+    np.random.seed(75)
+    for port in tqdm(range(num_portfolios)):
+        weights=np.random.random(num_assets)
+        weights=weights/np.sum(weights)
+        port_weights.append(weights)
+        returns= np.dot(weights,mu)
+        port_returns.append(returns)
+
+        var=cov.mul(weights,axis=0).mul(weights,axis=1).sum().sum()
+        sd=np.sqrt(var)*np.sqrt(days)
+        
+        port_volatility.append(sd)
+
+    #create dictionary to store all the retuns and their volatility from all the scenarios
+    data ={'returns':port_returns,'Volatility':port_volatility}
+    for counter,ticker in enumerate(df.columns.to_list()):
+        data[ticker+' weight'] = [w[counter] for w in port_weights]
+
+    #create data frame from dictionnary
+    portfolio=pd.DataFrame(data)
+    portfolio['SharpeRatio']=portfolio.returns-RiskFreeRate/portfolio.Volatility
+    
+    
+
+    return portfolio 
