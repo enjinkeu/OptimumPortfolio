@@ -114,3 +114,24 @@ def getMoments(df):
     return mu,cov,pivoted_df
 
 
+
+def portfolio_annualised_performance(weights, mu, cov,NumberOfDays=365):
+    """ 
+        this function aims to calculate portfolio annualized mean return and volatility 
+    """
+    returns = np.sum(mu * weights ) *NumberOfDays
+    std = np.sqrt(np.dot(weights.T, np.dot(cov, weights))) * np.sqrt(NumberOfDays)
+    return  returns,std
+
+
+def portfolioReturn(weights, mu, cov):
+    """
+        this function aims to return portfolio returns
+    """
+    return portfolio_annualised_performance(weights, mu, cov,NumberOfDays=365)[0]
+
+def portfolioVolatility(weights, mu, cov):
+    """
+        this function finds the portfolio volatity of a portfolio
+    """
+    return portfolio_annualised_performance(weights, mu, cov,NumberOfDays=365)[1]
