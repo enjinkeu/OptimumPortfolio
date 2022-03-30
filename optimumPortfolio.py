@@ -135,3 +135,26 @@ def portfolioVolatility(weights, mu, cov):
         this function finds the portfolio volatity of a portfolio
     """
     return portfolio_annualised_performance(weights, mu, cov,NumberOfDays=365)[1]
+
+
+def getEfficientPortfolio(mu, cov, returnTarget, constraintSet=(0,1)):
+    """For each returnTarget, we want to optimize the portfolio for minimum variance"""
+    num_assets = len(mu)
+    args = (mu, cov)
+
+    constraints = ({'type':'eq', 'fun': lambda x: portfolioReturn(x, mu, cov) - returnTarget},
+                    {'type': 'eq', 'fun': lambda x: np.sum(x) - 1})
+    bound = constraintSet
+    bounds = tuple(bound for asset in range(num_assets))
+    optimization = sc.minimize(portfolioVolatility, num_assets*[1./num_assets], args=args, method = 'SLSQP', bounds=bounds, constraints=constraints)
+    return optimization
+
+def getNegativeSharpeRatio(weights, mu, cov, riskFreeRate = 0):
+    """ 
+        this funcion helps compute the negative Sharpe Ratios
+        in order to use the function scipy.optimize.minimize
+        to find the minimum of a function
+    """
+    Returns, Std = portfolio_annualised_performance(weights, mu, cov,365)
+    return - (Returns - riskFreeRate)/Std
+
