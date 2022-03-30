@@ -158,3 +158,34 @@ def getNegativeSharpeRatio(weights, mu, cov, riskFreeRate = 0):
     Returns, Std = portfolio_annualised_performance(weights, mu, cov,365)
     return - (Returns - riskFreeRate)/Std
 
+
+
+
+
+def minimizeVolatility(mu, cov, constraintSet=(0,1)):
+    """Minimize the portfolio volatility by altering the 
+     weights/allocation of assets in the portfolio"""
+    numAssets = len(mu)
+    args = (mu, cov)
+    constraints = ({'type': 'eq', 'fun': lambda x: np.sum(x) - 1})
+    bound = constraintSet
+    bounds = tuple(bound for asset in range(numAssets))
+    result = sc.minimize(portfolioVolatility, numAssets*[1./numAssets], args=args,
+                        method='SLSQP', bounds=bounds, constraints=constraints)
+    return result
+
+def maxSharpeRatio( mu, cov,   riskFreeRate=0, constraintSet=(0,1)):
+    """
+        this function is a optimizing function designed to find the miminum of a function:
+        in this instance it looks at a distribution of negative sharpe ratio and find the lowest value
+        in other words the maximimum sharpe ratio
+    """
+
+    num_assets = len(mu)
+    args = (mu, cov, riskFreeRate)
+    constraints = ({'type':'eq','fun': lambda x:np.sum(x)-1})
+    bound = constraintSet
+    bounds = tuple( bound for asset in range(num_assets))
+    result = sc.minimize(getNegativeSharpeRatio, num_assets*[1./num_assets], args=args,
+                        method='SLSQP', bounds=bounds, constraints=constraints)
+    return result
